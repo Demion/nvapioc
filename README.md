@@ -1,5 +1,10 @@
 ### Changelog:
 
+- **v0.2** - [NvApiOc v0.2](https://github.com/Demion/nvapioc/releases/download/v0.2/NvApiOc_v0.2.zip)
+  * Add log file.
+  * Add TCC devices support.
+  * Add restart driver option.
+  * Remove PState options *(not working as expected)*.
 - **v0.1** - [NvApiOc v0.1](https://github.com/Demion/nvapioc/releases/download/v0.1/NvApiOc_v0.1.zip)
 
 ### About:
@@ -8,14 +13,14 @@ NvApiOc Open Source NvAPI NVIDIA GPU Overclock
   
 ### Usage:
 
-- **-core** gpuIndex pState offsetKHz *(0 = default)*
-- **-mem** gpuIndex pState offsetKHz *(0 = default)*
+- **-core** gpuIndex pState frequencyOffsetKHz *(0 = default)*
+- **-mem** gpuIndex pState frequencyOffsetKHz *(0 = default)*
 - **-volt** gpuIndex voltageUV *(0 = default)*
 - **-power** gpuIndex power
-- **-temp** gpuIndex tempC priority *(0 = false 1 = true)*
+- **-temp** gpuIndex priority tempC *(0 = false 1 = true)*
 - **-fan** gpuIndex fanIndex level *(-1 = auto)*
-- **-led** gpuIndex type brightness *(0 = logo 1 = slibridge)*
-- **-pstate** gpuIndex pState *(16 = auto)*
+- **-led** gpuIndex type brightness *(0 = logo 1 = sliBridge)*
+- **-restart**
 
 ### Donation:
 

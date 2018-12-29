@@ -1,10 +1,15 @@
+#define _CRT_SECURE_NO_WARNINGS
 #define _CRT_NONSTDC_NO_WARNINGS
 
 #include <Windows.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
-#define MAKE_NVAPI_VERSION(typeName, ver) ((unsigned int)(sizeof(typeName) | ((ver) << 16)))
+#define MAKE_NVAPI_VERSION(type, version) ((unsigned int)(sizeof(type) | ((version) << 16)))
+
+#pragma pack(push, 1)
 
 struct NV_GPU_PERF_PSTATES20_PARAM_DELTA
 {
@@ -17,39 +22,39 @@ struct NV_GPU_PERF_PSTATES20_PARAM_DELTA
 	} valueRange;
 };
 
+struct NV_GPU_PSTATE20_BASE_VOLTAGE_ENTRY
+{
+	unsigned int domainId;
+	unsigned int editable : 1;
+	unsigned int reserved : 31;
+	unsigned int voltageUV;
+	NV_GPU_PERF_PSTATES20_PARAM_DELTA voltageDeltaUV;
+};
+
 struct NV_GPU_PSTATE20_CLOCK_ENTRY
 {
 	unsigned int domainId;
 	unsigned int typeId;
 	unsigned int editable : 1;
 	unsigned int reserved : 31;
-	NV_GPU_PERF_PSTATES20_PARAM_DELTA freqDeltaKHz;
+	NV_GPU_PERF_PSTATES20_PARAM_DELTA frequencyDeltaKHz;
 
 	union
 	{
 		struct
 		{
-			int freqKHz;
+			unsigned int frequencyKHz;
 		} single;
 
 		struct
 		{
-			int minFreqKHz;
-			int maxFreqKHz;
+			unsigned int minFrequencyKHz;
+			unsigned int maxFrequencyKHz;
 			unsigned int domainId;
-			int minVoltageUV;
-			int maxVoltageUV;
+			unsigned int minVoltageUV;
+			unsigned int maxVoltageUV;
 		} range;
 	} data;
-};
-
-struct NV_GPU_PSTATE20_BASE_VOLTAGE_ENTRY
-{
-	unsigned int domainId;
-	unsigned int editable : 1;
-	unsigned int reserved : 31;
-	int voltUV;
-	NV_GPU_PERF_PSTATES20_PARAM_DELTA voltDeltaUV;
 };
 
 struct NV_GPU_PERF_PSTATES20_INFO
@@ -57,34 +62,24 @@ struct NV_GPU_PERF_PSTATES20_INFO
 	unsigned int version;
 	unsigned int editable : 1;
 	unsigned int reserved : 31;
-	unsigned int numPstates;
+	unsigned int numPStates;
 	unsigned int numClocks;
 	unsigned int numBaseVoltages;
 
 	struct
 	{
-		unsigned int pstateId;
+		unsigned int pStateId;
 		unsigned int editable : 1;
 		unsigned int reserved : 31;
 		NV_GPU_PSTATE20_CLOCK_ENTRY clocks[8];
 		NV_GPU_PSTATE20_BASE_VOLTAGE_ENTRY baseVoltages[4];
-	} pstates[16];
+	} pStates[16];
 
 	struct
 	{
 		unsigned int numVoltages;
 		NV_GPU_PSTATE20_BASE_VOLTAGE_ENTRY voltages[4];
-	} ov;
-};
-
-struct NV_GPU_CLOCK_LOCK_ENTRY
-{
-	unsigned int index;
-	unsigned int unk1;
-	unsigned int mode;
-	unsigned int unk2;
-	unsigned int voltageUV;
-	unsigned int unk3;
+	} overVoltage;
 };
 
 struct NV_GPU_CLOCK_LOCK
@@ -92,51 +87,57 @@ struct NV_GPU_CLOCK_LOCK
 	unsigned int version;
 	unsigned int flags;
 	unsigned int count;
-	NV_GPU_CLOCK_LOCK_ENTRY entry[32];
-};
 
-struct NV_GPU_POWER_STATUS_ENTRY
-{
-	unsigned int unk1;
-	unsigned int unk2;
-	unsigned int power;
-	unsigned int unk3;
+	struct
+	{
+		unsigned int index;
+		unsigned int unknown1;
+		unsigned int mode;
+		unsigned int unknown2;
+		unsigned int voltageUV;
+		unsigned int unknown3;
+	} entries[32];
 };
 
 struct NV_GPU_POWER_STATUS
 {
 	unsigned int version;
 	unsigned int count;
-	NV_GPU_POWER_STATUS_ENTRY entry[4];
-};
 
-struct NV_GPU_THERMAL_LIMIT_ENTRY
-{
-	unsigned int controller;
-	unsigned int value;
-	unsigned int flags;
+	struct
+	{
+		unsigned int unknown1;
+		unsigned int unknown2;
+		unsigned int power;
+		unsigned int unknown3;
+	} entries[4];
 };
 
 struct NV_GPU_THERMAL_LIMIT
 {
 	unsigned int version;
 	unsigned int count;
-	NV_GPU_THERMAL_LIMIT_ENTRY entry[4];
+
+	struct
+	{
+		unsigned int controller;
+		unsigned int value;
+		unsigned int flags;
+	} entries[4];
 };
 
-struct NV_GPU_SETCOOLER_LEVEL_COOLER
-{
-	unsigned int currentLevel;
-	unsigned int currentPolicy;
-};
-
-struct NV_GPU_SETCOOLER_LEVEL
+struct NV_GPU_COOLER_LEVEL
 {
 	unsigned int version;
-	NV_GPU_SETCOOLER_LEVEL_COOLER cooler[3];
+
+	struct
+	{
+		unsigned int level;
+		unsigned int policy;
+	} coolers[3];
 };
 
-struct NV_GPU_GET_ILLUMINATION_PARM
+struct NV_GPU_SET_ILLUMINATION_PARM
 {
 	unsigned int version;
 	unsigned int gpuHandle;
@@ -144,357 +145,505 @@ struct NV_GPU_GET_ILLUMINATION_PARM
 	unsigned int value;
 };
 
-typedef NV_GPU_GET_ILLUMINATION_PARM NV_GPU_SET_ILLUMINATION_PARM;
+#pragma pack(pop)
 
-void* (__cdecl *NvAPI_QueryInterface)(unsigned int id) = 0;
+void* (__cdecl *NvAPI_QueryInterface)(unsigned int offset) = 0;
 int (__cdecl *NvAPI_Initialize)() = 0;
 int (__cdecl *NvAPI_Unload)() = 0;
-int (__cdecl *NvAPI_EnumPhysicalGPUs)(unsigned int **gpuHandle, unsigned int *gpuCount) = 0;
-int (__cdecl *NvAPI_GPU_GetPstates20)(unsigned int gpuHandle, NV_GPU_PERF_PSTATES20_INFO *pStatesInfo) = 0;
+int (__cdecl *NvAPI_RestartDisplayDriver)() = 0;
+int (__cdecl *NvAPI_EnumPhysicalGPUs)(unsigned int *gpuHandles, unsigned int *gpuCount) = 0;
+int (__cdecl *NvAPI_EnumTCCPhysicalGPUs)(unsigned int *gpuHandles, unsigned int *gpuCount) = 0;
 int (__cdecl *NvAPI_GPU_SetPstates20)(unsigned int gpuHandle, NV_GPU_PERF_PSTATES20_INFO *pStatesInfo) = 0;
 int (__cdecl *NvAPI_GPU_GetClockBoostLock)(unsigned int gpuHandle, NV_GPU_CLOCK_LOCK *clockLock) = 0;
 int (__cdecl *NvAPI_GPU_SetClockBoostLock)(unsigned int gpuHandle, NV_GPU_CLOCK_LOCK *clockLock) = 0;
-int (__cdecl *NvAPI_GPU_ClientPowerPoliciesGetStatus)(unsigned int gpuHandle, NV_GPU_POWER_STATUS *powerStatus) = 0;
 int (__cdecl *NvAPI_GPU_ClientPowerPoliciesSetStatus)(unsigned int gpuHandle, NV_GPU_POWER_STATUS *powerStatus) = 0;
-int (__cdecl *NvAPI_GPU_ClientThermalPoliciesGetLimit)(unsigned int gpuHandle, NV_GPU_THERMAL_LIMIT *thermalLimit) = 0;
 int (__cdecl *NvAPI_GPU_ClientThermalPoliciesSetLimit)(unsigned int gpuHandle, NV_GPU_THERMAL_LIMIT *thermalLimit) = 0;
-int (__cdecl *NvAPI_GPU_SetCoolerLevels)(unsigned int gpuHandle, unsigned int coolerIndex, NV_GPU_SETCOOLER_LEVEL *coolerLevel) = 0;
-int (__cdecl *NvAPI_GPU_GetIllumination)(NV_GPU_GET_ILLUMINATION_PARM *illuminationInfo) = 0;
+int (__cdecl *NvAPI_GPU_SetCoolerLevels)(unsigned int gpuHandle, unsigned int coolerIndex, NV_GPU_COOLER_LEVEL *coolerLevel) = 0;
 int (__cdecl *NvAPI_GPU_SetIllumination)(NV_GPU_SET_ILLUMINATION_PARM *illuminationInfo) = 0;
-int (__cdecl *NvAPI_GPU_SetPstate)(unsigned int gpuHandle, unsigned int pState) = 0;
+int (__cdecl *NvAPI_GPU_SetPstate)(unsigned int gpuHandle, unsigned int pState, unsigned int setType) = 0;
+int (__cdecl *NvAPI_GPU_SetPstateClientLimits)(unsigned int gpuHandle, unsigned int limitType, unsigned int pState) = 0;
+int (__cdecl *NvAPI_GPU_EnableDynamicPstates)(unsigned int gpuHandle, unsigned int dynamicPStates) = 0;
+int (__cdecl *NvAPI_GPU_EnableOverclockedPstates)(unsigned int gpuHandle, unsigned int overclockedPStates) = 0;
 
-unsigned int GpuHandle[64] = {0};
+enum ClockType
+{
+	Core = 0,
+	Memory = 4
+};
+
+enum CoolerMode
+{
+	Manual = 1,
+	Auto = 32
+};
+
+enum IlluminationType
+{
+	Logo = 0,
+	SliBridge = 1
+};
+
+enum PStateLimitType
+{
+	Soft = 1,
+	Hard = 2,
+	All = 3
+};
+
+unsigned int GpuHandles[128] = {0};
 unsigned int GpuCount = 0;
 
-bool Load()
+#define LOG(expression) Log(#expression, strrchr(__FILE__, '\\') + 1, __LINE__, (int) (expression));
+
+FILE *LogFile = 0;
+
+int Log(const char *expression, const char *fileName, int line, int result)
 {
-	HMODULE nvapi = LoadLibraryA("nvapi.dll");
-
-	if (nvapi)
+	if (LogFile)
 	{
-		NvAPI_QueryInterface = (void* (__cdecl*)(unsigned int)) GetProcAddress(nvapi, "nvapi_QueryInterface");
+		time_t t = time(0);
 
-		if (NvAPI_QueryInterface)
+		tm *local = localtime(&t);
+
+		fprintf(LogFile, "[%02d.%02d.%04d %02d:%02d:%02d][%s:%d] %s = %d (0x%08X)\n",
+				local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, local->tm_hour, local->tm_min, local->tm_sec, fileName, line, expression, result, (unsigned int) result);
+
+		fflush(LogFile);
+	}
+
+	return result;
+}
+
+int Load()
+{
+	int result = -1;
+
+	HMODULE nvapi = 0;
+
+	LOG(nvapi = LoadLibraryA("nvapi.dll"));
+
+	result = !(nvapi != 0);
+
+	if (result == 0)
+	{
+		LOG(NvAPI_QueryInterface = (void* (__cdecl*)(unsigned int)) GetProcAddress(nvapi, "nvapi_QueryInterface"));
+
+		result = !(NvAPI_QueryInterface != 0);
+
+		if (result == 0)
 		{
 			NvAPI_Initialize = (int (__cdecl *)()) NvAPI_QueryInterface(0x0150E828);
 			NvAPI_Unload = (int (__cdecl*)()) NvAPI_QueryInterface(0xD22BDD7E);
-			NvAPI_EnumPhysicalGPUs = (int (__cdecl*)(unsigned int**, unsigned int*)) NvAPI_QueryInterface(0xE5AC921F);
-			NvAPI_GPU_GetPstates20 = (int (__cdecl*)(unsigned int, NV_GPU_PERF_PSTATES20_INFO*)) NvAPI_QueryInterface(0x6FF81213);
+			NvAPI_RestartDisplayDriver = (int (__cdecl*)()) NvAPI_QueryInterface(0xB4B26B65);
+			NvAPI_EnumPhysicalGPUs = (int (__cdecl*)(unsigned int*, unsigned int*)) NvAPI_QueryInterface(0xE5AC921F);
+			NvAPI_EnumTCCPhysicalGPUs = (int(__cdecl*)(unsigned int*, unsigned int*)) NvAPI_QueryInterface(0xD9930B07);
 			NvAPI_GPU_SetPstates20 = (int (__cdecl*)(unsigned int, NV_GPU_PERF_PSTATES20_INFO*)) NvAPI_QueryInterface(0x0F4DAE6B);
 			NvAPI_GPU_GetClockBoostLock = (int (__cdecl*)(unsigned int, NV_GPU_CLOCK_LOCK*)) NvAPI_QueryInterface(0xE440B867);
 			NvAPI_GPU_SetClockBoostLock = (int (__cdecl*)(unsigned int, NV_GPU_CLOCK_LOCK*)) NvAPI_QueryInterface(0x39442CFB);
-			NvAPI_GPU_ClientPowerPoliciesGetStatus = (int (__cdecl*)(unsigned int, NV_GPU_POWER_STATUS*)) NvAPI_QueryInterface(0x70916171);
 			NvAPI_GPU_ClientPowerPoliciesSetStatus = (int (__cdecl*)(unsigned int, NV_GPU_POWER_STATUS*)) NvAPI_QueryInterface(0xAD95F5ED);
-			NvAPI_GPU_ClientThermalPoliciesGetLimit = (int (__cdecl*)(unsigned int, NV_GPU_THERMAL_LIMIT*)) NvAPI_QueryInterface(0xE9C425A1);
 			NvAPI_GPU_ClientThermalPoliciesSetLimit = (int (__cdecl*)(unsigned int, NV_GPU_THERMAL_LIMIT*)) NvAPI_QueryInterface(0x34C0B13D);
-			NvAPI_GPU_SetCoolerLevels = (int (__cdecl*)(unsigned int, unsigned int, NV_GPU_SETCOOLER_LEVEL*)) NvAPI_QueryInterface(0x891FA0AE);
-			NvAPI_GPU_GetIllumination = (int (__cdecl*)(NV_GPU_GET_ILLUMINATION_PARM*)) NvAPI_QueryInterface(0x9A1B9365);
-			NvAPI_GPU_SetIllumination = (int (__cdecl*)(NV_GPU_GET_ILLUMINATION_PARM*)) NvAPI_QueryInterface(0x0254A187);
-			NvAPI_GPU_SetPstate = (int (__cdecl*)(unsigned int, unsigned int)) NvAPI_QueryInterface(0x025BFB10);
-
-			return true;
+			NvAPI_GPU_SetCoolerLevels = (int (__cdecl*)(unsigned int, unsigned int, NV_GPU_COOLER_LEVEL*)) NvAPI_QueryInterface(0x891FA0AE);
+			NvAPI_GPU_SetIllumination = (int (__cdecl*)(NV_GPU_SET_ILLUMINATION_PARM*)) NvAPI_QueryInterface(0x0254A187);
+			NvAPI_GPU_SetPstate = (int (__cdecl*)(unsigned int, unsigned int, unsigned int)) NvAPI_QueryInterface(0x025BFB10);
+			NvAPI_GPU_SetPstateClientLimits = (int (__cdecl*)(unsigned int, unsigned int, unsigned int)) NvAPI_QueryInterface(0xFDFC7D49);
+			NvAPI_GPU_EnableDynamicPstates = (int (__cdecl*)(unsigned int, unsigned int)) NvAPI_QueryInterface(0xFA579A0F);
+			NvAPI_GPU_EnableOverclockedPstates = (int (__cdecl*)(unsigned int, unsigned int)) NvAPI_QueryInterface(0xB23B70EE);
 		}
 	}
 
-	return false;
+	return result;
 }
 
 int Init()
 {
+	int result = -1;
+
 	if (NvAPI_Initialize)
 	{
-		return NvAPI_Initialize();
+		LOG(result = NvAPI_Initialize());
 	}
 
-	return -1;
+	return result;
 }
 
 int Free()
 {
+	int result = -1;
+
 	if (NvAPI_Unload)
 	{
-		return NvAPI_Unload();
+		LOG(result = NvAPI_Unload());
 	}
 
-	return -1;
+	return result;
 }
 
-int EnumGPU()
+int RestartDriver()
 {
+	int result = -1;
+
+	if (NvAPI_RestartDisplayDriver)
+	{
+		LOG(result = NvAPI_RestartDisplayDriver());
+	}
+
+	return result;
+}
+
+int EnumGpus()
+{
+	int result = -1;
+
 	if (NvAPI_EnumPhysicalGPUs)
 	{
-		return NvAPI_EnumPhysicalGPUs((unsigned int**) &GpuHandle, &GpuCount);
+		unsigned int count = 0;
+
+		LOG(result = NvAPI_EnumPhysicalGPUs(GpuHandles + GpuCount, &count));
+
+		GpuCount += count;
 	}
 
-	return -1;
+	return result;
 }
 
-int SetClock(unsigned int gpuIndex, unsigned int pState, int offsetKHz, unsigned int type)
+int EnumTccGpus()
 {
-	if ((NvAPI_GPU_SetPstates20) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_EnumTCCPhysicalGPUs)
 	{
-		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+		unsigned int count = 0;
 
-		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-		pStatesInfo.numPstates = 1;
-		pStatesInfo.numClocks = 1;
-		pStatesInfo.pstates[0].pstateId = pState;
-		pStatesInfo.pstates[0].clocks[0].domainId = type;
-		pStatesInfo.pstates[0].clocks[0].typeId = 0;
-		pStatesInfo.pstates[0].clocks[0].freqDeltaKHz.value = offsetKHz;
+		LOG(result = NvAPI_EnumTCCPhysicalGPUs(GpuHandles + GpuCount, &count));
 
-		return NvAPI_GPU_SetPstates20(GpuHandle[gpuIndex], &pStatesInfo);
+		GpuCount += count;
 	}
 
-	return -1;
+	return result;
 }
 
-int SetCoreClock(unsigned int gpuIndex, unsigned int pState, int offsetKHz)
+int SetClockOffset(unsigned int gpuIndex, unsigned int pState, ClockType clockType, int frequencyOffsetKHz)
 {
-	return SetClock(gpuIndex, pState, offsetKHz, 0);
-}
+	int result = -1;
 
-int SetMemoryClock(unsigned int gpuIndex, unsigned int pState, int offsetKHz)
-{
-	return SetClock(gpuIndex, pState, offsetKHz, 4);
-}
-
-int SetVoltage(unsigned int gpuIndex, unsigned int pState, int offsetUV)
-{
-	if ((NvAPI_GPU_SetPstates20) && (gpuIndex < GpuCount))
+	if (NvAPI_GPU_SetPstates20)
 	{
-		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
 
-		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-		pStatesInfo.numPstates = 1;
-		pStatesInfo.numBaseVoltages = 1;
-		pStatesInfo.pstates[0].pstateId = pState;
-		pStatesInfo.pstates[0].baseVoltages[0].domainId = 0;
-		pStatesInfo.pstates[0].baseVoltages[0].voltDeltaUV.value = offsetUV;
+			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+			pStatesInfo.numPStates = 1;
+			pStatesInfo.numClocks = 1;
+			pStatesInfo.pStates[0].pStateId = pState;
+			pStatesInfo.pStates[0].clocks[0].domainId = clockType;
+			pStatesInfo.pStates[0].clocks[0].typeId = 0;
+			pStatesInfo.pStates[0].clocks[0].frequencyDeltaKHz.value = frequencyOffsetKHz;
 
-		return NvAPI_GPU_SetPstates20(GpuHandle[gpuIndex], &pStatesInfo);
+			LOG(result = NvAPI_GPU_SetPstates20(GpuHandles[gpuIndex], &pStatesInfo));
+		}
 	}
 
-	return -1;
+	return result;
 }
 
-int SetOverVoltage(unsigned int gpuIndex, int offsetUV)
+int SetVoltageOffset(unsigned int gpuIndex, unsigned int pState, int voltageOffsetUV)
 {
-	if ((NvAPI_GPU_SetPstates20) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
 	{
-		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
 
-		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-		pStatesInfo.ov.numVoltages = 1;
-		pStatesInfo.ov.voltages[0].domainId = 0;
-		pStatesInfo.ov.voltages[0].voltDeltaUV.value = offsetUV;
+			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+			pStatesInfo.numPStates = 1;
+			pStatesInfo.numBaseVoltages = 1;
+			pStatesInfo.pStates[0].pStateId = pState;
+			pStatesInfo.pStates[0].baseVoltages[0].domainId = 0;
+			pStatesInfo.pStates[0].baseVoltages[0].voltageDeltaUV.value = voltageOffsetUV;
 
-		return NvAPI_GPU_SetPstates20(GpuHandle[gpuIndex], &pStatesInfo);
+			LOG(result = NvAPI_GPU_SetPstates20(GpuHandles[gpuIndex], &pStatesInfo));
+		}
 	}
 
-	return -1;
+	return result;
+}
+
+int SetOverVoltageOffset(unsigned int gpuIndex, int voltageOffsetUV)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
+	{
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+
+			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+			pStatesInfo.overVoltage.numVoltages = 1;
+			pStatesInfo.overVoltage.voltages[0].domainId = 0;
+			pStatesInfo.overVoltage.voltages[0].voltageDeltaUV.value = voltageOffsetUV;
+
+			LOG(result = NvAPI_GPU_SetPstates20(GpuHandles[gpuIndex], &pStatesInfo));
+		}
+	}
+
+	return result;
 }
 
 int SetVoltageLock(unsigned int gpuIndex, unsigned int voltageUV)
 {
-	if ((NvAPI_GPU_GetClockBoostLock) && (NvAPI_GPU_SetClockBoostLock) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if ((NvAPI_GPU_GetClockBoostLock) && (NvAPI_GPU_SetClockBoostLock))
 	{
-		NV_GPU_CLOCK_LOCK clockLock = {0};
-
-		clockLock.version = MAKE_NVAPI_VERSION(clockLock, 1);
-
-		NvAPI_GPU_GetClockBoostLock(GpuHandle[gpuIndex], &clockLock);
-
-		for (unsigned int i = 0; i < clockLock.count; ++i)
+		if (gpuIndex < GpuCount)
 		{
-			if (clockLock.entry[i].index == 6)
+			NV_GPU_CLOCK_LOCK clockLock = {0};
+
+			clockLock.version = MAKE_NVAPI_VERSION(clockLock, 1);
+
+			LOG(result = NvAPI_GPU_GetClockBoostLock(GpuHandles[gpuIndex], &clockLock));
+
+			if (result == 0)
 			{
-				clockLock.entry[i].mode = (voltageUV != 0) ? 3 : 0;
-				clockLock.entry[i].voltageUV = voltageUV;
-				clockLock.entry[i].unk3 = 0;
+				for (unsigned int i = 0; i < clockLock.count; ++i)
+				{
+					if (clockLock.entries[i].index == 6)
+					{
+						clockLock.entries[i].mode = (voltageUV != 0) ? 3 : 0;
+						clockLock.entries[i].voltageUV = voltageUV;
+						clockLock.entries[i].unknown3 = 0;
+					}
+				}
+
+				LOG(result = NvAPI_GPU_SetClockBoostLock(GpuHandles[gpuIndex], &clockLock));
 			}
 		}
-
-		return NvAPI_GPU_SetClockBoostLock(GpuHandle[gpuIndex], &clockLock);
 	}
 
-	return -1;
+	return result;
 }
 
-int SetPower(unsigned int gpuIndex, unsigned int power)
+int SetPowerLimit(unsigned int gpuIndex, unsigned int power)
 {
-	if ((NvAPI_GPU_ClientPowerPoliciesSetStatus) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_ClientPowerPoliciesSetStatus)
 	{
-		NV_GPU_POWER_STATUS powerStatus = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_POWER_STATUS powerStatus = {0};
 
-		powerStatus.version = MAKE_NVAPI_VERSION(powerStatus, 1);
-		powerStatus.count = 1;
-		powerStatus.entry[0].unk1 = 0;
-		powerStatus.entry[0].power = power * 1000;
+			powerStatus.version = MAKE_NVAPI_VERSION(powerStatus, 1);
+			powerStatus.count = 1;
+			powerStatus.entries[0].unknown1 = 0;
+			powerStatus.entries[0].power = power * 1000;
 
-		return NvAPI_GPU_ClientPowerPoliciesSetStatus(GpuHandle[gpuIndex], &powerStatus);
+			LOG(result = NvAPI_GPU_ClientPowerPoliciesSetStatus(GpuHandles[gpuIndex], &powerStatus));
+		}
 	}
 
-	return -1;
+	return result;
 }
 
-int SetTempLimit(unsigned int gpuIndex, unsigned int tempC, bool priority)
+int SetTempLimit(unsigned int gpuIndex, bool priority, unsigned int tempC)
 {
-	if ((NvAPI_GPU_ClientThermalPoliciesSetLimit) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_ClientThermalPoliciesSetLimit)
 	{
-		NV_GPU_THERMAL_LIMIT thermalLimit = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_THERMAL_LIMIT thermalLimit = {0};
 
-		thermalLimit.version = MAKE_NVAPI_VERSION(thermalLimit, 2);
-		thermalLimit.count = 1;
-		thermalLimit.entry[0].controller = 1;
-		thermalLimit.entry[0].value = tempC << 8;
-		thermalLimit.entry[0].flags = priority ? 1 : 0;
+			thermalLimit.version = MAKE_NVAPI_VERSION(thermalLimit, 2);
+			thermalLimit.count = 1;
+			thermalLimit.entries[0].controller = 1;
+			thermalLimit.entries[0].value = tempC << 8;
+			thermalLimit.entries[0].flags = priority ? 1 : 0;
 
-		return NvAPI_GPU_ClientThermalPoliciesSetLimit(GpuHandle[gpuIndex], &thermalLimit);
+			LOG(result = NvAPI_GPU_ClientThermalPoliciesSetLimit(GpuHandles[gpuIndex], &thermalLimit));
+		}
 	}
 
-	return -1;
+	return result;
 }
 
-int SetCoolerLevel(unsigned int gpuIndex, unsigned int coolerIndex, int level)
+int SetCoolerLevel(unsigned int gpuIndex, unsigned int coolerIndex, CoolerMode coolerMode, unsigned int level)
 {
-	if ((NvAPI_GPU_SetCoolerLevels) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_SetCoolerLevels)
 	{
-		NV_GPU_SETCOOLER_LEVEL coolerLevel = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_COOLER_LEVEL coolerLevel = {0};
 
-		coolerLevel.version = MAKE_NVAPI_VERSION(coolerLevel, 1);
-		coolerLevel.cooler[0].currentLevel = (level >= 0) ? level : 30;
-		coolerLevel.cooler[0].currentPolicy = (level > 0) ? 1 : 32;
+			coolerLevel.version = MAKE_NVAPI_VERSION(coolerLevel, 1);
+			coolerLevel.coolers[0].level = level;
+			coolerLevel.coolers[0].policy = coolerMode;
 
-		return NvAPI_GPU_SetCoolerLevels(GpuHandle[gpuIndex], coolerIndex, &coolerLevel);
+			LOG(result = NvAPI_GPU_SetCoolerLevels(GpuHandles[gpuIndex], coolerIndex, &coolerLevel));
+		}
 	}
 
-	return -1;
+	return result;
 }
 
-int SetIllumination(unsigned int gpuIndex, unsigned int type, unsigned int brightness)
+int SetIllumination(unsigned int gpuIndex, IlluminationType illuminationType, unsigned int brightness)
 {
-	if ((NvAPI_GPU_SetIllumination) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_SetIllumination)
 	{
-		NV_GPU_GET_ILLUMINATION_PARM illuminationInfo = {0};
+		if (gpuIndex < GpuCount)
+		{
+			NV_GPU_SET_ILLUMINATION_PARM illuminationInfo = {0};
 
-		illuminationInfo.version = MAKE_NVAPI_VERSION(illuminationInfo, 1);
-		illuminationInfo.gpuHandle = GpuHandle[gpuIndex];
-		illuminationInfo.attribute = type;
-		illuminationInfo.value = brightness;
+			illuminationInfo.version = MAKE_NVAPI_VERSION(illuminationInfo, 1);
+			illuminationInfo.gpuHandle = GpuHandles[gpuIndex];
+			illuminationInfo.attribute = illuminationType;
+			illuminationInfo.value = brightness;
 
-		return NvAPI_GPU_SetIllumination(&illuminationInfo);
+			LOG(result = NvAPI_GPU_SetIllumination(&illuminationInfo));
+		}
 	}
 
-	return -1;
+	return result;
 }
 
 int SetPState(unsigned int gpuIndex, unsigned int pState)
 {
-	if ((NvAPI_GPU_SetPstate) && (gpuIndex < GpuCount))
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstate)
 	{
-		return NvAPI_GPU_SetPstate(GpuHandle[gpuIndex], pState);
+		if (gpuIndex < GpuCount)
+		{
+			LOG(result = NvAPI_GPU_SetPstate(GpuHandles[gpuIndex], pState, 2));
+		}
 	}
 
-	return -1;
+	return result;
+}
+
+int SetPStateLimit(unsigned int gpuIndex, PStateLimitType limitType, unsigned int pState)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstateClientLimits)
+	{
+		if (gpuIndex < GpuCount)
+		{
+			LOG(result = NvAPI_GPU_SetPstateClientLimits(GpuHandles[gpuIndex], limitType, pState));
+		}
+	}
+
+	return result;
 }
 
 void PrintUsage()
 {
 	printf(
+		"\n"
 		"Usage:\n"
-		"-core gpuIndex pState offsetKHz (0 = default)\n"
-		"-mem gpuIndex pState offsetKHz (0 = default)\n"
+		"-core gpuIndex pState frequencyOffsetKHz (0 = default)\n"
+		"-mem gpuIndex pState frequencyOffsetKHz (0 = default)\n"
 		"-volt gpuIndex voltageUV (0 = default)\n"
 		"-power gpuIndex power\n"
-		"-temp gpuIndex tempC priority (0 = false 1 = true)\n"
+		"-temp gpuIndex priority tempC (0 = false 1 = true)\n"
 		"-fan gpuIndex fanIndex level (-1 = auto)\n"
-		"-led gpuIndex type brightness (0 = logo 1 = slibridge)\n"
-		"-pstate gpuIndex pState (16 = auto)\n");
+		"-led gpuIndex type brightness (0 = logo 1 = sliBridge)\n"
+		"-restart\n");
 }
 
-void ParseArg(int argc, char *argv[])
+void ParseArgs(int argc, char *argv[])
 {
 	int arg = 1;
 
 	while (arg < argc)
 	{
-		if ((strcmp(strupr(argv[arg]), "-CORE") == 0) && (arg + 3 < argc))
+		if (strcmp(strupr(argv[arg]), "-CORE") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int pState = atoi(argv[++arg]);
-			int offsetKHz = atoi(argv[++arg]);
+			if (arg + 3 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int pState = atoi(argv[++arg]);
+				int frequencyOffsetKHz = atoi(argv[++arg]);
 
-			int result = SetCoreClock(gpuIndex, pState, offsetKHz);
-
-			printf("SetCoreClock(%d, %d, %d) = %d\n", gpuIndex, pState, offsetKHz, result);
+				SetClockOffset(gpuIndex, pState, ClockType::Core, frequencyOffsetKHz);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-MEM") == 0) && (arg + 3 < argc))
+		else if (strcmp(strupr(argv[arg]), "-MEM") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int pState = atoi(argv[++arg]);
-			int offsetKHz = atoi(argv[++arg]);
+			if (arg + 3 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int pState = atoi(argv[++arg]);
+				int frequencyOffsetKHz = atoi(argv[++arg]);
 
-			int result = SetMemoryClock(gpuIndex, pState, offsetKHz);
-
-			printf("SetMemoryClock(%d, %d, %d) = %d\n", gpuIndex, pState, offsetKHz, result);
+				SetClockOffset(gpuIndex, pState, ClockType::Memory, frequencyOffsetKHz);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-VOLT") == 0) && (arg + 2 < argc))
+		else if (strcmp(strupr(argv[arg]), "-VOLT") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int voltageUV = atoi(argv[++arg]);
+			if (arg + 2 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int voltageUV = atoi(argv[++arg]);
 
-			int result = SetVoltageLock(gpuIndex, voltageUV);
-
-			printf("SetVoltageLock(%d, %d) = %d\n", gpuIndex, voltageUV, result);
+				SetVoltageLock(gpuIndex, voltageUV);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-POWER") == 0) && (arg + 2 < argc))
+		else if (strcmp(strupr(argv[arg]), "-POWER") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int power = atoi(argv[++arg]);
+			if (arg + 2 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int power = atoi(argv[++arg]);
 
-			int result = SetPower(gpuIndex, power);
-
-			printf("SetPower(%d, %d) = %d\n", gpuIndex, power, result);
+				SetPowerLimit(gpuIndex, power);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-TEMP") == 0) && (arg + 3 < argc))
+		else if (strcmp(strupr(argv[arg]), "-TEMP") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int tempC = atoi(argv[++arg]);
-			unsigned int priority = atoi(argv[++arg]);
+			if (arg + 3 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int priority = atoi(argv[++arg]);
+				unsigned int tempC = atoi(argv[++arg]);
 
-			int result = SetTempLimit(gpuIndex, tempC, (priority != 0));
-
-			printf("SetTempLimit(%d, %d, %d) = %d\n", gpuIndex, tempC, priority, result);
+				SetTempLimit(gpuIndex, (priority != 0), tempC);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-FAN") == 0) && (arg + 3 < argc))
+		else if (strcmp(strupr(argv[arg]), "-FAN") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int coolerIndex = atoi(argv[++arg]);
-			int level = atoi(argv[++arg]);
+			if (arg + 3 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int coolerIndex = atoi(argv[++arg]);
+				int level = atoi(argv[++arg]);
 
-			int result = SetCoolerLevel(gpuIndex, coolerIndex, level);
-
-			printf("SetCoolerLevel(%d, %d, %d) = %d\n", gpuIndex, coolerIndex, level, result);
+				SetCoolerLevel(gpuIndex, coolerIndex, level >= 0 ? CoolerMode::Manual : CoolerMode::Auto, level >= 0 ? level : 30);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-LED") == 0) && (arg + 3 < argc))
+		else if (strcmp(strupr(argv[arg]), "-LED") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int type = atoi(argv[++arg]);
-			unsigned int brightness = atoi(argv[++arg]);
+			if (arg + 3 < argc)
+			{
+				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int type = atoi(argv[++arg]);
+				unsigned int brightness = atoi(argv[++arg]);
 
-			int result = SetIllumination(gpuIndex, type, brightness);
-
-			printf("SetIllumination(%d, %d, %d) = %d\n", gpuIndex, type, brightness, result);
+				SetIllumination(gpuIndex, (IlluminationType) type, brightness);
+			}
 		}
-		else if ((strcmp(strupr(argv[arg]), "-PSTATE") == 0) && (arg + 2 < argc))
+		else if (strcmp(strupr(argv[arg]), "-RESTART") == 0)
 		{
-			unsigned int gpuIndex = atoi(argv[++arg]);
-			unsigned int pState = atoi(argv[++arg]);
-
-			int result = SetPState(gpuIndex, pState);
-
-			printf("SetPState(%d, %d) = %d\n", gpuIndex, pState, result);
+			RestartDriver();
 		}
 		else
 		{
@@ -507,34 +656,30 @@ void ParseArg(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-	printf("\nNvApiOc v0.1\n\n");
+	LogFile = fopen("log.txt", "a");
 
 	if (argc > 1)
 	{
-		int result = 0;
+		if (Load() == 0)
+		{
+			if (Init() == 0)
+			{
+				EnumGpus();
+				EnumTccGpus();
 
-		result = Load();
+				ParseArgs(argc, argv);
 
-		printf("Load() = %d\n", result);
-
-		result = Init();
-
-		printf("Init() = %d\n", result);
-
-		result = EnumGPU();
-
-		printf("EnumGPU() = %d\n", result);
-
-		ParseArg(argc, argv);
-
-		result = Free();
-
-		printf("Free() = %d\n", result);
+				Free();
+			}
+		}
 	}
 	else
 	{
 		PrintUsage();
 	}
+
+	if (LogFile)
+		fclose(LogFile);
 
 	return EXIT_SUCCESS;
 }
