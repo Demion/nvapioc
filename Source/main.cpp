@@ -220,7 +220,13 @@ int Load()
 
 	HMODULE nvapi = 0;
 
-	LOG(nvapi = LoadLibraryA("nvapi.dll"));
+#if defined _WIN64
+	char nvapiDllName[] = "nvapi64.dll";
+#else
+	char nvapiDllName[] = "nvapi.dll";
+#endif
+
+	LOG(nvapi = LoadLibraryA(nvapiDllName));
 
 	result = !(nvapi != 0);
 
@@ -236,7 +242,7 @@ int Load()
 			NvAPI_Unload = (int (__cdecl*)()) NvAPI_QueryInterface(0xD22BDD7E);
 			NvAPI_RestartDisplayDriver = (int (__cdecl*)()) NvAPI_QueryInterface(0xB4B26B65);
 			NvAPI_EnumPhysicalGPUs = (int (__cdecl*)(unsigned int*, unsigned int*)) NvAPI_QueryInterface(0xE5AC921F);
-			NvAPI_EnumTCCPhysicalGPUs = (int(__cdecl*)(unsigned int*, unsigned int*)) NvAPI_QueryInterface(0xD9930B07);
+			NvAPI_EnumTCCPhysicalGPUs = (int (__cdecl*)(unsigned int*, unsigned int*)) NvAPI_QueryInterface(0xD9930B07);
 			NvAPI_GPU_SetPstates20 = (int (__cdecl*)(unsigned int, NV_GPU_PERF_PSTATES20_INFO*)) NvAPI_QueryInterface(0x0F4DAE6B);
 			NvAPI_GPU_GetClockBoostLock = (int (__cdecl*)(unsigned int, NV_GPU_CLOCK_LOCK*)) NvAPI_QueryInterface(0xE440B867);
 			NvAPI_GPU_SetClockBoostLock = (int (__cdecl*)(unsigned int, NV_GPU_CLOCK_LOCK*)) NvAPI_QueryInterface(0x39442CFB);
@@ -647,7 +653,8 @@ void ParseArgs(int argc, char *argv[])
 		}
 		else
 		{
-			printf("Invalid parameter #%d \"%s\"\n", arg, argv[arg]);
+			printf("\n"
+				   "Invalid parameter #%d \"%s\"\n", arg, argv[arg]);
 		}
 
 		++arg;

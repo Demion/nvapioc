@@ -1,5 +1,8 @@
 ### Changelog:
 
+- **v0.3** - [NvApiOc v0.3](https://github.com/Demion/nvapioc/releases/download/v0.3/NvApiOc_v0.3.zip)
+  * Add require administrator rights (UAC).
+  * Add x64 build support.
 - **v0.2** - [NvApiOc v0.2](https://github.com/Demion/nvapioc/releases/download/v0.2/NvApiOc_v0.2.zip)
   * Add log file.
   * Add TCC devices support.
