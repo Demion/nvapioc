@@ -1,5 +1,9 @@
 ### Changelog:
 
+- **v0.4** - [NvApiOc v0.4](https://github.com/Demion/nvapioc/releases/download/v0.4/NvApiOc_v0.4.zip)
+  * Add AMD ATI ADL Overdrive support.
+  * Reformat voltage options.
+  * Fix x64 GPU handle size.
 - **v0.3** - [NvApiOc v0.3](https://github.com/Demion/nvapioc/releases/download/v0.3/NvApiOc_v0.3.zip)
   * Add require administrator rights (UAC).
   * Add x64 build support.
@@ -12,14 +16,15 @@
 
 ### About:
 
-NvApiOc Open Source NvAPI NVIDIA GPU Overclock
-  
+NvApiOc Open Source NVIDIA NvAPI & AMD ATI ADL Overdrive GPU Overclock
+
 ### Usage:
 
-- **-core** gpuIndex pState frequencyOffsetKHz *(0 = default)*
-- **-mem** gpuIndex pState frequencyOffsetKHz *(0 = default)*
-- **-volt** gpuIndex voltageUV *(0 = default)*
-- **-power** gpuIndex power
+- **-core** gpuIndex pState frequencyKHz *(0 = default NVIDIA offset)*
+- **-mem** gpuIndex pState frequencyKHz *(0 = default NVIDIA offset)*
+- **-cvolt** gpuIndex pState voltageUV *(0 = default)*
+- **-mvolt** gpuIndex pState voltageUV *(0 = default)*
+- **-power** gpuIndex power *(AMD offset)*
 - **-temp** gpuIndex priority tempC *(0 = false 1 = true)*
 - **-fan** gpuIndex fanIndex level *(-1 = auto)*
 - **-led** gpuIndex type brightness *(0 = logo 1 = sliBridge)*
@@ -34,3 +39,4 @@ NvApiOc Open Source NvAPI NVIDIA GPU Overclock
 
 - NVIDIA Inspector – Tool (Orbmu2k) https://orbmu2k.de/tools/nvidia-inspector-tool
 - nvapi-rs - NVAPI bindings for Rust (arcnmx) https://github.com/arcnmx/nvapi-rs https://arcnmx.github.io/nvapi-rs/nvapi/
+- OverdriveNTool - tool for AMD Hawaii, Fiji, Polaris, Vega GPUs (tede) https://forums.guru3d.com/threads/overdriventool-tool-for-amd-gpus.416116/
