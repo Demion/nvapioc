@@ -222,6 +222,7 @@ int (__cdecl *NvAPI_GPU_SetPstate)(void *gpuHandle, unsigned int pState, unsigne
 int (__cdecl *NvAPI_GPU_SetPstateClientLimits)(void *gpuHandle, unsigned int limitType, unsigned int pState) = 0;
 int (__cdecl *NvAPI_GPU_EnableDynamicPstates)(void *gpuHandle, unsigned int dynamicPStates) = 0;
 int (__cdecl *NvAPI_GPU_EnableOverclockedPstates)(void *gpuHandle, unsigned int overclockedPStates) = 0;
+int (__cdecl *NvAPI_GPU_GetBusId)(void *gpuHandle, unsigned int *busId) = 0;
 
 int (__cdecl *ADL2_Main_Control_Create)(void* (__stdcall* mallocCallback)(int size), int enumConnectedAdapters, void **context) = 0;
 int (__cdecl *ADL2_Main_Control_Destroy)(void *context) = 0;
@@ -252,10 +253,8 @@ enum class PStateLimitType
 };
 
 void *NvApiGpuHandles[128] = {0};
-unsigned int NvApiGpuCount = 0;
 
-unsigned int AdlGpuHandles[128] = {0};
-unsigned int AdlGpuCount = 0;
+unsigned int AdlGpuIndexes[128] = {0};
 
 void *AdlContext = 0;
 
@@ -263,15 +262,15 @@ void *AdlContext = 0;
 
 FILE *LogFile = 0;
 
-intptr_t Log(const char *expression, const char *fileName, int line, intptr_t result)
+intptr_t Log(const char *expression, const char *fileName, unsigned int line, intptr_t result)
 {
 	if (LogFile)
 	{
 		time_t t = time(0);
 		tm *local = localtime(&t);
 
-		fprintf(LogFile, "[%02d.%02d.%04d %02d:%02d:%02d][%s:%d] %s = %zd (0x%0*zX)\n",
-				local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, local->tm_hour, local->tm_min, local->tm_sec, fileName, line, expression, result, (int) sizeof(result) * 2, result);
+		fprintf(LogFile, "[%02d.%02d.%04d %02d:%02d:%02d][%8s:%04d] %-102s %-20zd (0x%0*zX)\n",
+				local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, local->tm_hour, local->tm_min, local->tm_sec, fileName, line, expression, result, (unsigned int) sizeof(result) * 2, result);
 
 		fflush(LogFile);
 	}
@@ -319,6 +318,7 @@ int NvApiLoad()
 			NvAPI_GPU_SetPstateClientLimits = (int (__cdecl*)(void*, unsigned int, unsigned int)) NvAPI_QueryInterface(0xFDFC7D49);
 			NvAPI_GPU_EnableDynamicPstates = (int (__cdecl*)(void*, unsigned int)) NvAPI_QueryInterface(0xFA579A0F);
 			NvAPI_GPU_EnableOverclockedPstates = (int (__cdecl*)(void*, unsigned int)) NvAPI_QueryInterface(0xB23B70EE);
+			NvAPI_GPU_GetBusId = (int (__cdecl *)(void*, unsigned int*)) NvAPI_QueryInterface(0x1BE0B8E5);
 		}
 	}
 
@@ -365,13 +365,26 @@ int NvApiEnumGpus()
 {
 	int result = -1;
 
-	if (NvAPI_EnumPhysicalGPUs)
+	if ((NvAPI_EnumPhysicalGPUs) && (NvAPI_GPU_GetBusId))
 	{
+		void *handles[64] = {0};
 		unsigned int count = 0;
 
-		LOG(result = NvAPI_EnumPhysicalGPUs(NvApiGpuHandles + NvApiGpuCount, &count));
+		LOG(result = NvAPI_EnumPhysicalGPUs(handles, &count));
 
-		NvApiGpuCount += count;
+		if (result == 0)
+		{
+			for (unsigned int i = 0; i < count; ++i)
+			{
+				unsigned int busId = 0;
+				int busIdResult = 0;
+
+				LOG(busIdResult = NvAPI_GPU_GetBusId(handles[i], &busId));
+
+				if (busIdResult == 0)
+					NvApiGpuHandles[busId] = handles[i];
+			}
+		}
 	}
 
 	return result;
@@ -381,141 +394,24 @@ int NvApiEnumTccGpus()
 {
 	int result = -1;
 
-	if (NvAPI_EnumTCCPhysicalGPUs)
+	if ((NvAPI_EnumTCCPhysicalGPUs) && (NvAPI_GPU_GetBusId))
 	{
+		void *handles[64] = {0};
 		unsigned int count = 0;
 
-		LOG(result = NvAPI_EnumTCCPhysicalGPUs(NvApiGpuHandles + NvApiGpuCount, &count));
+		LOG(result = NvAPI_EnumTCCPhysicalGPUs(handles, &count));
 
-		NvApiGpuCount += count;
-	}
-
-	return result;
-}
-
-int NvApiSetCoreClockOffset(unsigned int gpuIndex, unsigned int pState, int frequencyOffsetKHz)
-{
-	int result = -1;
-
-	if (NvAPI_GPU_SetPstates20)
-	{
-		if (gpuIndex < NvApiGpuCount)
+		if (result == 0)
 		{
-			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
-
-			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-			pStatesInfo.numPStates = 1;
-			pStatesInfo.numClocks = 1;
-			pStatesInfo.pStates[0].pStateId = pState;
-			pStatesInfo.pStates[0].clocks[0].domainId = 0;
-			pStatesInfo.pStates[0].clocks[0].typeId = 0;
-			pStatesInfo.pStates[0].clocks[0].frequencyDeltaKHz.value = frequencyOffsetKHz;
-
-			LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuIndex], &pStatesInfo));
-		}
-	}
-
-	return result;
-}
-
-int NvApiSetMemoryClockOffset(unsigned int gpuIndex, unsigned int pState, int frequencyOffsetKHz)
-{
-	int result = -1;
-
-	if (NvAPI_GPU_SetPstates20)
-	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
-
-			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-			pStatesInfo.numPStates = 1;
-			pStatesInfo.numClocks = 1;
-			pStatesInfo.pStates[0].pStateId = pState;
-			pStatesInfo.pStates[0].clocks[0].domainId = 4;
-			pStatesInfo.pStates[0].clocks[0].typeId = 0;
-			pStatesInfo.pStates[0].clocks[0].frequencyDeltaKHz.value = frequencyOffsetKHz;
-
-			LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuIndex], &pStatesInfo));
-		}
-	}
-
-	return result;
-}
-
-int NvApiSetVoltageOffset(unsigned int gpuIndex, unsigned int pState, int voltageOffsetUV)
-{
-	int result = -1;
-
-	if (NvAPI_GPU_SetPstates20)
-	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
-
-			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-			pStatesInfo.numPStates = 1;
-			pStatesInfo.numBaseVoltages = 1;
-			pStatesInfo.pStates[0].pStateId = pState;
-			pStatesInfo.pStates[0].baseVoltages[0].domainId = 0;
-			pStatesInfo.pStates[0].baseVoltages[0].voltageDeltaUV.value = voltageOffsetUV;
-
-			LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuIndex], &pStatesInfo));
-		}
-	}
-
-	return result;
-}
-
-int NvApiSetOverVoltageOffset(unsigned int gpuIndex, int voltageOffsetUV)
-{
-	int result = -1;
-
-	if (NvAPI_GPU_SetPstates20)
-	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
-
-			pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
-			pStatesInfo.overVoltage.numVoltages = 1;
-			pStatesInfo.overVoltage.voltages[0].domainId = 0;
-			pStatesInfo.overVoltage.voltages[0].voltageDeltaUV.value = voltageOffsetUV;
-
-			LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuIndex], &pStatesInfo));
-		}
-	}
-
-	return result;
-}
-
-int NvApiSetVoltageLock(unsigned int gpuIndex, unsigned int voltageUV)
-{
-	int result = -1;
-
-	if ((NvAPI_GPU_GetClockBoostLock) && (NvAPI_GPU_SetClockBoostLock))
-	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_CLOCK_LOCK clockLock = {0};
-
-			clockLock.version = MAKE_NVAPI_VERSION(clockLock, 1);
-
-			LOG(result = NvAPI_GPU_GetClockBoostLock(NvApiGpuHandles[gpuIndex], &clockLock));
-
-			if (result == 0)
+			for (unsigned int i = 0; i < count; ++i)
 			{
-				for (unsigned int i = 0; i < clockLock.count; ++i)
-				{
-					if (clockLock.entries[i].index == 6)
-					{
-						clockLock.entries[i].mode = (voltageUV != 0) ? 3 : 0;
-						clockLock.entries[i].voltageUV = voltageUV;
-						clockLock.entries[i].unknown3 = 0;
-					}
-				}
+				unsigned int busId = 0;
+				int busIdResult = 0;
 
-				LOG(result = NvAPI_GPU_SetClockBoostLock(NvApiGpuHandles[gpuIndex], &clockLock));
+				LOG(busIdResult = NvAPI_GPU_GetBusId(handles[i], &busId));
+
+				if (busIdResult == 0)
+					NvApiGpuHandles[busId] = handles[i];
 			}
 		}
 	}
@@ -523,149 +419,240 @@ int NvApiSetVoltageLock(unsigned int gpuIndex, unsigned int voltageUV)
 	return result;
 }
 
-int NvApiSetPowerLimit(unsigned int gpuIndex, unsigned int power)
+int NvApiSetCoreClockOffset(unsigned int gpuBusId, unsigned int pState, int frequencyOffsetKHz)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
+	{
+		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+
+		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+		pStatesInfo.numPStates = 1;
+		pStatesInfo.numClocks = 1;
+		pStatesInfo.pStates[0].pStateId = pState;
+		pStatesInfo.pStates[0].clocks[0].domainId = 0;
+		pStatesInfo.pStates[0].clocks[0].typeId = 0;
+		pStatesInfo.pStates[0].clocks[0].frequencyDeltaKHz.value = frequencyOffsetKHz;
+
+		LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuBusId], &pStatesInfo));
+	}
+
+	return result;
+}
+
+int NvApiSetMemoryClockOffset(unsigned int gpuBusId, unsigned int pState, int frequencyOffsetKHz)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
+	{
+		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+
+		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+		pStatesInfo.numPStates = 1;
+		pStatesInfo.numClocks = 1;
+		pStatesInfo.pStates[0].pStateId = pState;
+		pStatesInfo.pStates[0].clocks[0].domainId = 4;
+		pStatesInfo.pStates[0].clocks[0].typeId = 0;
+		pStatesInfo.pStates[0].clocks[0].frequencyDeltaKHz.value = frequencyOffsetKHz;
+
+		LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuBusId], &pStatesInfo));
+	}
+
+	return result;
+}
+
+int NvApiSetVoltageOffset(unsigned int gpuBusId, unsigned int pState, int voltageOffsetUV)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
+	{
+		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+
+		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+		pStatesInfo.numPStates = 1;
+		pStatesInfo.numBaseVoltages = 1;
+		pStatesInfo.pStates[0].pStateId = pState;
+		pStatesInfo.pStates[0].baseVoltages[0].domainId = 0;
+		pStatesInfo.pStates[0].baseVoltages[0].voltageDeltaUV.value = voltageOffsetUV;
+
+		LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuBusId], &pStatesInfo));
+	}
+
+	return result;
+}
+
+int NvApiSetOverVoltageOffset(unsigned int gpuBusId, int voltageOffsetUV)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_SetPstates20)
+	{
+		NV_GPU_PERF_PSTATES20_INFO pStatesInfo = {0};
+
+		pStatesInfo.version = MAKE_NVAPI_VERSION(pStatesInfo, 2);
+		pStatesInfo.overVoltage.numVoltages = 1;
+		pStatesInfo.overVoltage.voltages[0].domainId = 0;
+		pStatesInfo.overVoltage.voltages[0].voltageDeltaUV.value = voltageOffsetUV;
+
+		LOG(result = NvAPI_GPU_SetPstates20(NvApiGpuHandles[gpuBusId], &pStatesInfo));
+	}
+
+	return result;
+}
+
+int NvApiSetVoltageLock(unsigned int gpuBusId, unsigned int voltageUV)
+{
+	int result = -1;
+
+	if ((NvAPI_GPU_GetClockBoostLock) && (NvAPI_GPU_SetClockBoostLock))
+	{
+		NV_GPU_CLOCK_LOCK clockLock = {0};
+
+		clockLock.version = MAKE_NVAPI_VERSION(clockLock, 1);
+
+		LOG(result = NvAPI_GPU_GetClockBoostLock(NvApiGpuHandles[gpuBusId], &clockLock));
+
+		if (result == 0)
+		{
+			for (unsigned int i = 0; i < clockLock.count; ++i)
+			{
+				if (clockLock.entries[i].index == 6)
+				{
+					clockLock.entries[i].mode = (voltageUV != 0) ? 3 : 0;
+					clockLock.entries[i].voltageUV = voltageUV;
+					clockLock.entries[i].unknown3 = 0;
+				}
+			}
+
+			LOG(result = NvAPI_GPU_SetClockBoostLock(NvApiGpuHandles[gpuBusId], &clockLock));
+		}
+	}
+
+	return result;
+}
+
+int NvApiSetPowerLimit(unsigned int gpuBusId, unsigned int power)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_ClientPowerPoliciesSetStatus)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_POWER_STATUS powerStatus = {0};
+		NV_GPU_POWER_STATUS powerStatus = {0};
 
-			powerStatus.version = MAKE_NVAPI_VERSION(powerStatus, 1);
-			powerStatus.count = 1;
-			powerStatus.entries[0].unknown1 = 0;
-			powerStatus.entries[0].power = power * 1000;
+		powerStatus.version = MAKE_NVAPI_VERSION(powerStatus, 1);
+		powerStatus.count = 1;
+		powerStatus.entries[0].unknown1 = 0;
+		powerStatus.entries[0].power = power * 1000;
 
-			LOG(result = NvAPI_GPU_ClientPowerPoliciesSetStatus(NvApiGpuHandles[gpuIndex], &powerStatus));
-		}
+		LOG(result = NvAPI_GPU_ClientPowerPoliciesSetStatus(NvApiGpuHandles[gpuBusId], &powerStatus));
 	}
 
 	return result;
 }
 
-int NvApiSetTempLimit(unsigned int gpuIndex, bool priority, unsigned int tempC)
+int NvApiSetTempLimit(unsigned int gpuBusId, bool priority, unsigned int tempC)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_ClientThermalPoliciesSetLimit)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_THERMAL_LIMIT thermalLimit = {0};
+		NV_GPU_THERMAL_LIMIT thermalLimit = {0};
 
-			thermalLimit.version = MAKE_NVAPI_VERSION(thermalLimit, 2);
-			thermalLimit.count = 1;
-			thermalLimit.entries[0].controller = 1;
-			thermalLimit.entries[0].value = tempC << 8;
-			thermalLimit.entries[0].flags = priority ? 1 : 0;
+		thermalLimit.version = MAKE_NVAPI_VERSION(thermalLimit, 2);
+		thermalLimit.count = 1;
+		thermalLimit.entries[0].controller = 1;
+		thermalLimit.entries[0].value = tempC << 8;
+		thermalLimit.entries[0].flags = priority ? 1 : 0;
 
-			LOG(result = NvAPI_GPU_ClientThermalPoliciesSetLimit(NvApiGpuHandles[gpuIndex], &thermalLimit));
-		}
+		LOG(result = NvAPI_GPU_ClientThermalPoliciesSetLimit(NvApiGpuHandles[gpuBusId], &thermalLimit));
 	}
 
 	return result;
 }
 
-int NvApiSetFanSpeed(unsigned int gpuIndex, unsigned int fanIndex, int speed)
+int NvApiSetFanSpeed(unsigned int gpuBusId, unsigned int fanIndex, int speed)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_SetCoolerLevels)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_COOLER_LEVEL coolerLevel = {0};
+		NV_GPU_COOLER_LEVEL coolerLevel = {0};
 
-			coolerLevel.version = MAKE_NVAPI_VERSION(coolerLevel, 1);
-			coolerLevel.coolers[0].level = (speed >= 0) ? speed : 30;
-			coolerLevel.coolers[0].policy = (speed >= 0) ? 1 : 32;
+		coolerLevel.version = MAKE_NVAPI_VERSION(coolerLevel, 1);
+		coolerLevel.coolers[0].level = (speed >= 0) ? speed : 30;
+		coolerLevel.coolers[0].policy = (speed >= 0) ? 1 : 32;
 
-			LOG(result = NvAPI_GPU_SetCoolerLevels(NvApiGpuHandles[gpuIndex], fanIndex, &coolerLevel));
-		}
+		LOG(result = NvAPI_GPU_SetCoolerLevels(NvApiGpuHandles[gpuBusId], fanIndex, &coolerLevel));
 	}
 
 	return result;
 }
 
-int NvApiSetLedBrightness(unsigned int gpuIndex, LedType ledType, unsigned int brightness)
+int NvApiSetLedBrightness(unsigned int gpuBusId, LedType ledType, unsigned int brightness)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_SetIllumination)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			NV_GPU_SET_ILLUMINATION_PARM illuminationInfo = {0};
+		NV_GPU_SET_ILLUMINATION_PARM illuminationInfo = {0};
 
-			illuminationInfo.version = MAKE_NVAPI_VERSION(illuminationInfo, 1);
-			illuminationInfo.gpuHandle = NvApiGpuHandles[gpuIndex];
-			illuminationInfo.attribute = (unsigned int) ledType;
-			illuminationInfo.value = brightness;
+		illuminationInfo.version = MAKE_NVAPI_VERSION(illuminationInfo, 1);
+		illuminationInfo.gpuHandle = NvApiGpuHandles[gpuBusId];
+		illuminationInfo.attribute = (unsigned int) ledType;
+		illuminationInfo.value = brightness;
 
-			LOG(result = NvAPI_GPU_SetIllumination(&illuminationInfo));
-		}
+		LOG(result = NvAPI_GPU_SetIllumination(&illuminationInfo));
 	}
 
 	return result;
 }
 
-int NvApiSetPState(unsigned int gpuIndex, unsigned int pState)
+int NvApiSetPState(unsigned int gpuBusId, unsigned int pState)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_SetPstate)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			LOG(result = NvAPI_GPU_SetPstate(NvApiGpuHandles[gpuIndex], pState, 2));
-		}
+		LOG(result = NvAPI_GPU_SetPstate(NvApiGpuHandles[gpuBusId], pState, 2));
 	}
 
 	return result;
 }
 
-int NvApiSetPStateLimit(unsigned int gpuIndex, PStateLimitType limitType, unsigned int pState)
+int NvApiSetPStateLimit(unsigned int gpuBusId, PStateLimitType limitType, unsigned int pState)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_SetPstateClientLimits)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			LOG(result = NvAPI_GPU_SetPstateClientLimits(NvApiGpuHandles[gpuIndex], (unsigned int) limitType, pState));
-		}
+		LOG(result = NvAPI_GPU_SetPstateClientLimits(NvApiGpuHandles[gpuBusId], (unsigned int) limitType, pState));
 	}
 
 	return result;
 }
 
-int NvApiEnableDynamicPStates(unsigned int gpuIndex, bool enabled)
+int NvApiEnableDynamicPStates(unsigned int gpuBusId, bool enabled)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_EnableDynamicPstates)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			LOG(result = NvAPI_GPU_EnableDynamicPstates(NvApiGpuHandles[gpuIndex], enabled ? 1 : 0));
-		}
+		LOG(result = NvAPI_GPU_EnableDynamicPstates(NvApiGpuHandles[gpuBusId], enabled ? 1 : 0));
 	}
 
 	return result;
 }
 
-int NvApiEnableOverclockedPStates(unsigned int gpuIndex, bool enabled)
+int NvApiEnableOverclockedPStates(unsigned int gpuBusId, bool enabled)
 {
 	int result = -1;
 
 	if (NvAPI_GPU_EnableOverclockedPstates)
 	{
-		if (gpuIndex < NvApiGpuCount)
-		{
-			LOG(result = NvAPI_GPU_EnableOverclockedPstates(NvApiGpuHandles[gpuIndex], enabled ? 1 : 0));
-		}
+		LOG(result = NvAPI_GPU_EnableOverclockedPstates(NvApiGpuHandles[gpuBusId], enabled ? 1 : 0));
 	}
 
 	return result;
@@ -751,59 +738,21 @@ int AdlEnumGpus()
 
 			if (result == 0)
 			{
-				if (count > 0)
+				AdapterInfo adaptersInfo[128] = {0};
+
+				LOG(result = ADL2_Adapter_AdapterInfo_Get(AdlContext, adaptersInfo, sizeof(AdapterInfo) * count));
+
+				if (result == 0)
 				{
-					int size = sizeof(AdapterInfo) * count;
-
-					AdapterInfo *adaptersInfo = 0;
-
-					LOG(adaptersInfo = (AdapterInfo*) malloc(size));
-
-					result = !(adaptersInfo != 0);
-
-					if (result == 0)
+					for (int i = 0; i < count; ++i)
 					{
-						memset(adaptersInfo, 0, size);
+						int id = 0;
+						int idResult = 0;
 
-						LOG(result = ADL2_Adapter_AdapterInfo_Get(AdlContext, adaptersInfo, size));
+						LOG(idResult = ADL2_Adapter_ID_Get(AdlContext, adaptersInfo[i].adapterIndex, &id));
 
-						if (result == 0)
-						{
-							int ids[128] = {0};
-
-							for (int i = 0; i < count; ++i)
-							{
-								int id = 0, idResult = 0;
-
-								LOG(idResult = ADL2_Adapter_ID_Get(AdlContext, adaptersInfo[i].adapterIndex, &id));
-
-								if (idResult == 0)
-								{
-									bool idFound = false;
-
-									for (unsigned int j = 0; j < AdlGpuCount; ++j)
-									{
-										if (ids[j] == id)
-										{
-											idFound = true;
-
-											break;
-										}
-									}
-
-									if (!idFound)
-									{
-										ids[AdlGpuCount] = id;
-
-										AdlGpuHandles[AdlGpuCount] = adaptersInfo[i].adapterIndex;
-
-										++AdlGpuCount;
-									}
-								}
-							}
-						}
-
-						free(adaptersInfo);
+						if (idResult == 0)
+							AdlGpuIndexes[adaptersInfo[i].busNumber] = adaptersInfo[i].adapterIndex;
 					}
 				}
 			}
@@ -813,7 +762,7 @@ int AdlEnumGpus()
 	return result;
 }
 
-int AdlSetCoreClock(unsigned int gpuIndex, unsigned int pState, unsigned int frequencyKHz)
+int AdlSetCoreClock(unsigned int gpuBusId, unsigned int pState, unsigned int frequencyKHz)
 {
 	int result = -1;
 
@@ -821,30 +770,27 @@ int AdlSetCoreClock(unsigned int gpuIndex, unsigned int pState, unsigned int fre
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = (frequencyKHz != 0) ? 3 : 1;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = (frequencyKHz != 0) ? 3 : 1;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[pState].clock = frequencyKHz / 10;
-					}
-
-					LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[pState].clock = frequencyKHz / 10;
 				}
+
+				LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -852,7 +798,7 @@ int AdlSetCoreClock(unsigned int gpuIndex, unsigned int pState, unsigned int fre
 	return result;
 }
 
-int AdlSetCoreVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int voltageUV)
+int AdlSetCoreVoltage(unsigned int gpuBusId, unsigned int pState, unsigned int voltageUV)
 {
 	int result = -1;
 
@@ -860,30 +806,27 @@ int AdlSetCoreVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int v
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = (voltageUV != 0) ? 3 : 1;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = (voltageUV != 0) ? 3 : 1;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[pState].vddc = voltageUV / 1000;
-					}
-
-					LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[pState].vddc = voltageUV / 1000;
 				}
+
+				LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -891,7 +834,7 @@ int AdlSetCoreVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int v
 	return result;
 }
 
-int AdlEnableCorePState(unsigned int gpuIndex, unsigned int pState, bool enabled)
+int AdlEnableCorePState(unsigned int gpuBusId, unsigned int pState, bool enabled)
 {
 	int result = -1;
 
@@ -899,30 +842,27 @@ int AdlEnableCorePState(unsigned int gpuIndex, unsigned int pState, bool enabled
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = 3;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_SystemClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = 3;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[i].enabled = enabled ? 1 : 0;
-					}
-
-					LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[i].enabled = enabled ? 1 : 0;
 				}
+
+				LOG(result = ADL2_OverdriveN_SystemClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -930,7 +870,7 @@ int AdlEnableCorePState(unsigned int gpuIndex, unsigned int pState, bool enabled
 	return result;
 }
 
-int AdlSetMemoryClock(unsigned int gpuIndex, unsigned int pState, unsigned int frequencyKHz)
+int AdlSetMemoryClock(unsigned int gpuBusId, unsigned int pState, unsigned int frequencyKHz)
 {
 	int result = -1;
 
@@ -938,30 +878,27 @@ int AdlSetMemoryClock(unsigned int gpuIndex, unsigned int pState, unsigned int f
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = (frequencyKHz != 0) ? 3 : 1;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = (frequencyKHz != 0) ? 3 : 1;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[pState].clock = frequencyKHz / 10;
-					}
-
-					LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[pState].clock = frequencyKHz / 10;
 				}
+
+				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -969,7 +906,7 @@ int AdlSetMemoryClock(unsigned int gpuIndex, unsigned int pState, unsigned int f
 	return result;
 }
 
-int AdlSetMemoryVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int voltageUV)
+int AdlSetMemoryVoltage(unsigned int gpuBusId, unsigned int pState, unsigned int voltageUV)
 {
 	int result = -1;
 
@@ -977,30 +914,27 @@ int AdlSetMemoryVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = (voltageUV != 0) ? 3 : 1;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = (voltageUV != 0) ? 3 : 1;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[pState].vddc = voltageUV / 1000;
-					}
-
-					LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[pState].vddc = voltageUV / 1000;
 				}
+
+				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -1008,7 +942,7 @@ int AdlSetMemoryVoltage(unsigned int gpuIndex, unsigned int pState, unsigned int
 	return result;
 }
 
-int AdlEnableMemoryPState(unsigned int gpuIndex, unsigned int pState, bool enabled)
+int AdlEnableMemoryPState(unsigned int gpuBusId, unsigned int pState, bool enabled)
 {
 	int result = -1;
 
@@ -1016,30 +950,27 @@ int AdlEnableMemoryPState(unsigned int gpuIndex, unsigned int pState, bool enabl
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPerformanceLevelsX2 performanceLevels = {0};
+
+			performanceLevels.size = sizeof(performanceLevels);
+			performanceLevels.numberOfPerformanceLevels = 8;
+
+			LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
+
+			if (result == 0)
 			{
-				ADLODNPerformanceLevelsX2 performanceLevels = {0};
+				performanceLevels.mode = 3;
 
-				performanceLevels.size = sizeof(performanceLevels);
-				performanceLevels.numberOfPerformanceLevels = 8;
-
-				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Get(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
-
-				if (result == 0)
+				for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
 				{
-					performanceLevels.mode = 3;
+					performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
+					performanceLevels.levels[i].unknown = 0;
 
-					for (int i = 0; i < performanceLevels.numberOfPerformanceLevels; ++i)
-					{
-						performanceLevels.levels[i].enabled = ((performanceLevels.levels[i].enabled & (1 << i)) != 0);
-						performanceLevels.levels[i].unknown = 0;
-
-						if (i == pState)
-							performanceLevels.levels[i].enabled = enabled ? 1 : 0;
-					}
-
-					LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuHandles[gpuIndex], &performanceLevels));
+					if (i == pState)
+						performanceLevels.levels[i].enabled = enabled ? 1 : 0;
 				}
+
+				LOG(result = ADL2_OverdriveN_MemoryClocksX2_Set(AdlContext, AdlGpuIndexes[gpuBusId], &performanceLevels));
 			}
 		}
 	}
@@ -1047,7 +978,7 @@ int AdlEnableMemoryPState(unsigned int gpuIndex, unsigned int pState, bool enabl
 	return result;
 }
 
-int AdlSetPowerLimit(unsigned int gpuIndex, int power)
+int AdlSetPowerLimit(unsigned int gpuBusId, int power)
 {
 	int result = -1;
 
@@ -1055,19 +986,16 @@ int AdlSetPowerLimit(unsigned int gpuIndex, int power)
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPowerLimitSetting powerLimitSettings = {0};
+
+			LOG(result = ADL2_OverdriveN_PowerLimit_Get(AdlContext, AdlGpuIndexes[gpuBusId], &powerLimitSettings));
+
+			if (result == 0)
 			{
-				ADLODNPowerLimitSetting powerLimitSettings = {0};
+				powerLimitSettings.mode = 3;
+				powerLimitSettings.tdpLimit = power;
 
-				LOG(result = ADL2_OverdriveN_PowerLimit_Get(AdlContext, AdlGpuHandles[gpuIndex], &powerLimitSettings));
-
-				if (result == 0)
-				{
-					powerLimitSettings.mode = 3;
-					powerLimitSettings.tdpLimit = power;
-
-					LOG(result = ADL2_OverdriveN_PowerLimit_Set(AdlContext, AdlGpuHandles[gpuIndex], &powerLimitSettings));
-				}
+				LOG(result = ADL2_OverdriveN_PowerLimit_Set(AdlContext, AdlGpuIndexes[gpuBusId], &powerLimitSettings));
 			}
 		}
 	}
@@ -1075,7 +1003,7 @@ int AdlSetPowerLimit(unsigned int gpuIndex, int power)
 	return result;
 }
 
-int AdlSetTempLimit(unsigned int gpuIndex, unsigned int tempC)
+int AdlSetTempLimit(unsigned int gpuBusId, unsigned int tempC)
 {
 	int result = -1;
 
@@ -1083,19 +1011,16 @@ int AdlSetTempLimit(unsigned int gpuIndex, unsigned int tempC)
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
+			ADLODNPowerLimitSetting powerLimitSettings = {0};
+
+			LOG(result = ADL2_OverdriveN_PowerLimit_Get(AdlContext, AdlGpuIndexes[gpuBusId], &powerLimitSettings));
+
+			if (result == 0)
 			{
-				ADLODNPowerLimitSetting powerLimitSettings = {0};
+				powerLimitSettings.mode = 3;
+				powerLimitSettings.maxOperatingTemperature = tempC;
 
-				LOG(result = ADL2_OverdriveN_PowerLimit_Get(AdlContext, AdlGpuHandles[gpuIndex], &powerLimitSettings));
-
-				if (result == 0)
-				{
-					powerLimitSettings.mode = 3;
-					powerLimitSettings.maxOperatingTemperature = tempC;
-
-					LOG(result = ADL2_OverdriveN_PowerLimit_Set(AdlContext, AdlGpuHandles[gpuIndex], &powerLimitSettings));
-				}
+				LOG(result = ADL2_OverdriveN_PowerLimit_Set(AdlContext, AdlGpuIndexes[gpuBusId], &powerLimitSettings));
 			}
 		}
 	}
@@ -1103,7 +1028,7 @@ int AdlSetTempLimit(unsigned int gpuIndex, unsigned int tempC)
 	return result;
 }
 
-int AdlSetFanControl(unsigned int gpuIndex, unsigned int minRPM, unsigned int maxRPM, unsigned int targetTempC, unsigned int acousticLimitKHz)
+int AdlSetFanControl(unsigned int gpuBusId, unsigned int minRPM, unsigned int maxRPM, unsigned int targetTempC, unsigned int acousticLimitKHz)
 {
 	int result = -1;
 
@@ -1111,28 +1036,25 @@ int AdlSetFanControl(unsigned int gpuIndex, unsigned int minRPM, unsigned int ma
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
-			{
-				ADLODNFanControl fanControl = {0};
+			ADLODNFanControl fanControl = {0};
 
-				fanControl.mode = 3;
-				fanControl.fanControlMode = 0;
-				fanControl.currentFanSpeedMode = 0;
-				fanControl.currentFanSpeed = 0;
-				fanControl.targetFanSpeed = maxRPM;
-				fanControl.targetTemperature = targetTempC;
-				fanControl.minPerformanceClock = acousticLimitKHz / 1000;
-				fanControl.minFanLimit = minRPM;
+			fanControl.mode = 3;
+			fanControl.fanControlMode = 0;
+			fanControl.currentFanSpeedMode = 0;
+			fanControl.currentFanSpeed = 0;
+			fanControl.targetFanSpeed = maxRPM;
+			fanControl.targetTemperature = targetTempC;
+			fanControl.minPerformanceClock = acousticLimitKHz / 1000;
+			fanControl.minFanLimit = minRPM;
 
-				LOG(result = ADL2_OverdriveN_FanControl_Set(AdlContext, AdlGpuHandles[gpuIndex], &fanControl));
-			}
+			LOG(result = ADL2_OverdriveN_FanControl_Set(AdlContext, AdlGpuIndexes[gpuBusId], &fanControl));
 		}
 	}
 
 	return result;
 }
 
-int AdlSetFanSpeed(unsigned int gpuIndex, unsigned int fanIndex, unsigned int speed)
+int AdlSetFanSpeed(unsigned int gpuBusId, unsigned int fanIndex, unsigned int speed)
 {
 	int result = -1;
 
@@ -1140,24 +1062,21 @@ int AdlSetFanSpeed(unsigned int gpuIndex, unsigned int fanIndex, unsigned int sp
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
-			{
-				ADLFanSpeedValue fanSpeedValue = {0};
+			ADLFanSpeedValue fanSpeedValue = {0};
 
-				fanSpeedValue.size = sizeof(fanSpeedValue);
-				fanSpeedValue.speedType = 1;
-				fanSpeedValue.fanSpeed = speed;
-				fanSpeedValue.flags = 1;
+			fanSpeedValue.size = sizeof(fanSpeedValue);
+			fanSpeedValue.speedType = 1;
+			fanSpeedValue.fanSpeed = speed;
+			fanSpeedValue.flags = 1;
 
-				LOG(result = ADL2_Overdrive5_FanSpeed_Set(AdlContext, AdlGpuHandles[gpuIndex], fanIndex, &fanSpeedValue));
-			}
+			LOG(result = ADL2_Overdrive5_FanSpeed_Set(AdlContext, AdlGpuIndexes[gpuBusId], fanIndex, &fanSpeedValue));
 		}
 	}
 
 	return result;
 }
 
-int AdlSetDefaultFanSpeed(unsigned int gpuIndex, unsigned int fanIndex)
+int AdlSetDefaultFanSpeed(unsigned int gpuBusId, unsigned int fanIndex)
 {
 	int result = -1;
 
@@ -1165,10 +1084,7 @@ int AdlSetDefaultFanSpeed(unsigned int gpuIndex, unsigned int fanIndex)
 	{
 		if (AdlContext)
 		{
-			if (gpuIndex < AdlGpuCount)
-			{
-				LOG(result = ADL2_Overdrive5_FanSpeedToDefault_Set(AdlContext, AdlGpuHandles[gpuIndex], fanIndex));
-			}
+			LOG(result = ADL2_Overdrive5_FanSpeedToDefault_Set(AdlContext, AdlGpuIndexes[gpuBusId], fanIndex));
 		}
 	}
 
@@ -1180,14 +1096,14 @@ void PrintUsage()
 	printf(
 		"\n"
 		"Usage:\n"
-		"-core gpuIndex pState frequencyKHz (0 = default NVIDIA offset)\n"
-		"-mem gpuIndex pState frequencyKHz (0 = default NVIDIA offset)\n"
-		"-cvolt gpuIndex pState voltageUV (0 = default)\n"
-		"-mvolt gpuIndex pState voltageUV (0 = default)\n"
-		"-power gpuIndex power (AMD offset)\n"
-		"-temp gpuIndex priority tempC (0 = false 1 = true)\n"
-		"-fan gpuIndex fanIndex level (-1 = auto)\n"
-		"-led gpuIndex type brightness (0 = logo 1 = sliBridge)\n"
+		"-core gpuBusId pState frequencyKHz (0 = default NVIDIA offset)\n"
+		"-mem gpuBusId pState frequencyKHz (0 = default NVIDIA offset)\n"
+		"-cvolt gpuBusId pState voltageUV (0 = default)\n"
+		"-mvolt gpuBusId pState voltageUV (0 = default)\n"
+		"-power gpuBusId power (AMD offset)\n"
+		"-temp gpuBusId priority tempC (0 = false 1 = true)\n"
+		"-fan gpuBusId fanIndex speed (-1 = auto)\n"
+		"-led gpuBusId type brightness (0 = logo 1 = sliBridge)\n"
 		"-restart\n");
 }
 
@@ -1201,103 +1117,103 @@ void ParseArgs(int argc, char *argv[])
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int pState = atoi(argv[++arg]);
 				int frequencyKHz = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetCoreClockOffset(gpuIndex, pState, frequencyKHz);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetCoreClockOffset(gpuBusId, pState, frequencyKHz);
 				else
-					AdlSetCoreClock(gpuIndex - NvApiGpuCount, pState, frequencyKHz);
+					AdlSetCoreClock(gpuBusId, pState, frequencyKHz);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-MEM") == 0)
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int pState = atoi(argv[++arg]);
 				int frequencyKHz = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetMemoryClockOffset(gpuIndex, pState, frequencyKHz);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetMemoryClockOffset(gpuBusId, pState, frequencyKHz);
 				else
-					AdlSetMemoryClock(gpuIndex - NvApiGpuCount, pState, frequencyKHz);
+					AdlSetMemoryClock(gpuBusId, pState, frequencyKHz);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-CVOLT") == 0)
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int pState = atoi(argv[++arg]);
 				unsigned int voltageUV = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetVoltageLock(gpuIndex, voltageUV);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetVoltageLock(gpuBusId, voltageUV);
 				else
-					AdlSetCoreVoltage(gpuIndex - NvApiGpuCount, pState, voltageUV);
+					AdlSetCoreVoltage(gpuBusId, pState, voltageUV);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-MVOLT") == 0)
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int pState = atoi(argv[++arg]);
 				unsigned int voltageUV = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetVoltageLock(gpuIndex, voltageUV);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetVoltageLock(gpuBusId, voltageUV);
 				else
-					AdlSetMemoryVoltage(gpuIndex - NvApiGpuCount, pState, voltageUV);
+					AdlSetMemoryVoltage(gpuBusId, pState, voltageUV);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-POWER") == 0)
 		{
 			if (arg + 2 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				int power = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetPowerLimit(gpuIndex, power);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetPowerLimit(gpuBusId, power);
 				else
-					AdlSetPowerLimit(gpuIndex - NvApiGpuCount, power);
+					AdlSetPowerLimit(gpuBusId, power);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-TEMP") == 0)
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int priority = atoi(argv[++arg]);
 				unsigned int tempC = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetTempLimit(gpuIndex, (priority != 0), tempC);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetTempLimit(gpuBusId, (priority != 0), tempC);
 				else
-					AdlSetTempLimit(gpuIndex - NvApiGpuCount, tempC);
+					AdlSetTempLimit(gpuBusId, tempC);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-FAN") == 0)
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int fanIndex = atoi(argv[++arg]);
 				int speed = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
+				if (NvApiGpuHandles[gpuBusId] != 0)
 				{
-					NvApiSetFanSpeed(gpuIndex, fanIndex, speed);
+					NvApiSetFanSpeed(gpuBusId, fanIndex, speed);
 				}
 				else
 				{
 					if (speed >= 0)
-						AdlSetFanSpeed(gpuIndex - NvApiGpuCount, fanIndex, speed);
+						AdlSetFanSpeed(gpuBusId, fanIndex, speed);
 					else
-						AdlSetDefaultFanSpeed(gpuIndex - NvApiGpuCount, fanIndex);
+						AdlSetDefaultFanSpeed(gpuBusId, fanIndex);
 				}
 			}
 		}
@@ -1305,12 +1221,12 @@ void ParseArgs(int argc, char *argv[])
 		{
 			if (arg + 3 < argc)
 			{
-				unsigned int gpuIndex = atoi(argv[++arg]);
+				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int type = atoi(argv[++arg]);
 				unsigned int brightness = atoi(argv[++arg]);
 
-				if (gpuIndex < NvApiGpuCount)
-					NvApiSetLedBrightness(gpuIndex, (LedType) type, brightness);
+				if (NvApiGpuHandles[gpuBusId] != 0)
+					NvApiSetLedBrightness(gpuBusId, (LedType) type, brightness);
 			}
 		}
 		else if (strcmp(strupr(argv[arg]), "-RESTART") == 0)

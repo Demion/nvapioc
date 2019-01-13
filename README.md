@@ -1,5 +1,8 @@
 ### Changelog:
 
+- **v0.5** - [NvApiOc v0.5](https://github.com/Demion/nvapioc/releases/download/v0.5/NvApiOc_v0.5.zip)
+  * Replace GPU index with bus id.
+  * Reformat log file.
 - **v0.4** - [NvApiOc v0.4](https://github.com/Demion/nvapioc/releases/download/v0.4/NvApiOc_v0.4.zip)
   * Add AMD ATI ADL Overdrive support.
   * Reformat voltage options.
@@ -20,14 +23,14 @@ NvApiOc Open Source NVIDIA NvAPI & AMD ATI ADL Overdrive GPU Overclock
 
 ### Usage:
 
-- **-core** gpuIndex pState frequencyKHz *(0 = default NVIDIA offset)*
-- **-mem** gpuIndex pState frequencyKHz *(0 = default NVIDIA offset)*
-- **-cvolt** gpuIndex pState voltageUV *(0 = default)*
-- **-mvolt** gpuIndex pState voltageUV *(0 = default)*
-- **-power** gpuIndex power *(AMD offset)*
-- **-temp** gpuIndex priority tempC *(0 = false 1 = true)*
-- **-fan** gpuIndex fanIndex level *(-1 = auto)*
-- **-led** gpuIndex type brightness *(0 = logo 1 = sliBridge)*
+- **-core** gpuBusId pState frequencyKHz *(0 = default NVIDIA offset)*
+- **-mem** gpuBusId pState frequencyKHz *(0 = default NVIDIA offset)*
+- **-cvolt** gpuBusId pState voltageUV *(0 = default)*
+- **-mvolt** gpuBusId pState voltageUV *(0 = default)*
+- **-power** gpuBusId power *(AMD offset)*
+- **-temp** gpuBusId priority tempC *(0 = false 1 = true)*
+- **-fan** gpuBusId fanIndex speed *(-1 = auto)*
+- **-led** gpuBusId type brightness *(0 = logo 1 = sliBridge)*
 - **-restart**
 
 ### Donation:
