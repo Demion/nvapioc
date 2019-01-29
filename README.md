@@ -1,5 +1,7 @@
 ### Changelog:
 
+- **v0.6** - [NvApiOc v0.6](https://github.com/Demion/nvapioc/releases/download/v0.6/NvApiOc_v0.6.zip)
+  * Add curve (voltage:frequency) option. 
 - **v0.5** - [NvApiOc v0.5](https://github.com/Demion/nvapioc/releases/download/v0.5/NvApiOc_v0.5.zip)
   * Replace GPU index with bus id.
   * Reformat log file.
@@ -23,14 +25,16 @@ NvApiOc Open Source NVIDIA NvAPI & AMD ATI ADL Overdrive GPU Overclock
 
 ### Usage:
 
-- **-core** gpuBusId pState frequencyKHz *(0 = default NVIDIA offset)*
-- **-mem** gpuBusId pState frequencyKHz *(0 = default NVIDIA offset)*
-- **-cvolt** gpuBusId pState voltageUV *(0 = default)*
-- **-mvolt** gpuBusId pState voltageUV *(0 = default)*
-- **-power** gpuBusId power *(AMD offset)*
-- **-temp** gpuBusId priority tempC *(0 = false 1 = true)*
-- **-fan** gpuBusId fanIndex speed *(-1 = auto)*
-- **-led** gpuBusId type brightness *(0 = logo 1 = sliBridge)*
+- **-core** gpuBusId pState frequencyKHz *(frequencyKHz: 0 = default; NVIDIA offset)*
+- **-mem** gpuBusId pState frequencyKHz *(frequencyKHz: 0 = default; NVIDIA offset)*
+- **-cvolt** gpuBusId pState voltageUV *(voltageUV: 0 = default)*
+- **-mvolt** gpuBusId pState voltageUV *(voltageUV: 0 = default)*
+- **-power** gpuBusId power *(power: AMD offset)*
+- **-temp** gpuBusId priority tempC *(priority: 0 = false; 1 = true)*
+- **-fan** gpuBusId fanIndex speed *(speed: -1 = default)*
+- **-led** gpuBusId type brightness *(type: 0 = logo; 1 = sliBridge)*
+- **-curve** gpuBusId count voltageUV frequencyKHz vUV2 fKHz2 vUV3 fKHz3
+<br/>*(count: 0 = reset; -1 = save; frequencyKHz: 0 = default; NVIDIA offset)*
 - **-restart**
 
 ### Donation:
