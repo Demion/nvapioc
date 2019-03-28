@@ -300,6 +300,9 @@ enum class PStateLimitType
 	All = 3
 };
 
+bool NvApi = true, Adl = true;
+bool LogFileEnable = true;
+
 void *NvApiGpuHandles[128] = {0};
 
 unsigned int AdlGpuIndexes[128] = {0};
@@ -1285,7 +1288,42 @@ void PrintUsage()
 		"-led gpuBusId type brightness (type: 0 = logo; 1 = sliBridge)\n"
 		"-curve gpuBusId count voltageUV frequencyKHz vUV2 fKHz2 vUV3 fKHz3\n"
 		"(count: 0 = reset; -1 = save; frequencyKHz: 0 = default; NVIDIA offset)\n"
+		"-nvidia enable (enable: 0 = false; 1 = true = default)\n"
+		"-amd enable (enable: 0 = false; 1 = true = default)\n"
+		"-log enable (enable: 0 = false; 1 = true = default)\n"
 		"-restart\n");
+}
+
+void ParseInitArgs(int argc, char *argv[])
+{
+	int arg = 1;
+
+	while (arg < argc)
+	{
+		if (strcmp(strupr(argv[arg]), "-NVIDIA") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				NvApi = (atoi(argv[++arg]) != 0);
+			}
+		}
+		else if (strcmp(strupr(argv[arg]), "-AMD") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				Adl = (atoi(argv[++arg]) != 0);
+			}
+		}
+		else if (strcmp(strupr(argv[arg]), "-LOG") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				LogFileEnable = (atoi(argv[++arg]) != 0);
+			}
+		}
+
+		++arg;
+	}
 }
 
 void ParseArgs(int argc, char *argv[])
@@ -1294,7 +1332,28 @@ void ParseArgs(int argc, char *argv[])
 
 	while (arg < argc)
 	{
-		if (strcmp(strupr(argv[arg]), "-CORE") == 0)
+		if (strcmp(strupr(argv[arg]), "-NVIDIA") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				NvApi = (atoi(argv[++arg]) != 0);
+			}
+		}
+		else if (strcmp(strupr(argv[arg]), "-AMD") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				Adl = (atoi(argv[++arg]) != 0);
+			}
+		}
+		else if (strcmp(strupr(argv[arg]), "-LOG") == 0)
+		{
+			if (arg + 1 < argc)
+			{
+				LogFileEnable = (atoi(argv[++arg]) != 0);
+			}
+		}
+		else if (strcmp(strupr(argv[arg]), "-CORE") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -1476,49 +1535,60 @@ void ParseArgs(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-	LogFile = fopen("log.txt", "a");
-
 	if (argc > 1)
 	{
-		bool nvapi = false, adl = false;
+		ParseInitArgs(argc, argv);
 
-		if (NvApiLoad() == 0)
+		if (LogFileEnable)
+			LogFile = fopen("log.txt", "a");
+
+		if (NvApi)
 		{
-			if (NvApiInit() == 0)
-			{
-				nvapi = true;
+			NvApi = false;
 
-				NvApiEnumGpus();
-				NvApiEnumTccGpus();
+			if (NvApiLoad() == 0)
+			{
+				if (NvApiInit() == 0)
+				{
+					NvApiEnumGpus();
+					NvApiEnumTccGpus();
+
+					NvApi = true;
+				}
 			}
 		}
 
-		if (AdlLoad() == 0)
+		if (Adl)
 		{
-			if (AdlInit() == 0)
-			{
-				adl = true;
+			Adl = false;
 
-				AdlEnumGpus();
+			if (AdlLoad() == 0)
+			{
+				if (AdlInit() == 0)
+				{
+					AdlEnumGpus();
+
+					Adl = true;
+				}
 			}
 		}
 
-		if ((nvapi) || (adl))
+		if ((NvApi) || (Adl))
 			ParseArgs(argc, argv);
 
-		if (nvapi)
+		if (NvApi)
 			NvApiFree();
 
-		if (adl)
+		if (Adl)
 			AdlFree();
+
+		if (LogFile)
+			fclose(LogFile);
 	}
 	else
 	{
 		PrintUsage();
 	}
-
-	if (LogFile)
-		fclose(LogFile);
 
 	return EXIT_SUCCESS;
 }

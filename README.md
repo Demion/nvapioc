@@ -1,5 +1,9 @@
 ### Changelog:
 
+- **v0.7** - [NvApiOc v0.7](https://github.com/Demion/nvapioc/releases/download/v0.7/NvApiOc_v0.7.zip)
+  * Add NVIDIA NvAPI switch option.
+  * Add AMD ATI ADL switch option.
+  * Add log file switch option.
 - **v0.6** - [NvApiOc v0.6](https://github.com/Demion/nvapioc/releases/download/v0.6/NvApiOc_v0.6.zip)
   * Add curve (voltage:frequency) option. 
 - **v0.5** - [NvApiOc v0.5](https://github.com/Demion/nvapioc/releases/download/v0.5/NvApiOc_v0.5.zip)
@@ -35,6 +39,9 @@ NvApiOc Open Source NVIDIA NvAPI & AMD ATI ADL Overdrive GPU Overclock
 - **-led** gpuBusId type brightness *(type: 0 = logo; 1 = sliBridge)*
 - **-curve** gpuBusId count voltageUV frequencyKHz vUV2 fKHz2 vUV3 fKHz3
 <br/>*(count: 0 = reset; -1 = save; frequencyKHz: 0 = default; NVIDIA offset)*
+- **-nvidia** enable *(enable: 0 = false; 1 = true = default)*
+- **-amd** enable *(enable: 0 = false; 1 = true = default)*
+- **-log** enable *(enable: 0 = false; 1 = true = default)*
 - **-restart**
 
 ### Donation:
