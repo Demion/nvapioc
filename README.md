@@ -44,11 +44,6 @@ NvApiOc Open Source NVIDIA NvAPI & AMD ATI ADL Overdrive GPU Overclock
 - **-log** enable *(enable: 0 = false; 1 = true = default)*
 - **-restart**
 
-### Donation:
-
-- ETH: 0xcb4effdeb46479caa0fef5f5e3569e4852f753a2
-- BTC: 1H1zNLHNxqtMgVYJESF6PjPVq2h9tLW4xG
-
 ### Credits:
 
 - NVIDIA Inspector – Tool (Orbmu2k) https://orbmu2k.de/tools/nvidia-inspector-tool
