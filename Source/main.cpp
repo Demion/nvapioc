@@ -135,6 +135,22 @@ struct NV_GPU_COOLER_LEVEL
 	} coolers[3];
 };
 
+struct NV_GPU_FAN_COOLERS_CONTROL
+{
+	unsigned int version;
+	unsigned int unknown1;
+	unsigned int count;
+	unsigned int unknown2[8];
+
+	struct
+	{
+		unsigned int index;
+		unsigned int level;
+		unsigned int mode;
+		unsigned int unknown3[8];
+	} coolers[32];
+};
+
 struct NV_GPU_SET_ILLUMINATION_PARM
 {
 	unsigned int version;
@@ -261,6 +277,8 @@ int (__cdecl *NvAPI_GPU_SetClockBoostLock)(void *gpuHandle, NV_GPU_CLOCK_LOCK *c
 int (__cdecl *NvAPI_GPU_ClientPowerPoliciesSetStatus)(void *gpuHandle, NV_GPU_POWER_STATUS *powerStatus) = 0;
 int (__cdecl *NvAPI_GPU_ClientThermalPoliciesSetLimit)(void *gpuHandle, NV_GPU_THERMAL_LIMIT *thermalLimit) = 0;
 int (__cdecl *NvAPI_GPU_SetCoolerLevels)(void *gpuHandle, unsigned int coolerIndex, NV_GPU_COOLER_LEVEL *coolerLevel) = 0;
+int (__cdecl *NvAPI_GPU_ClientFanCoolersGetControl)(void *gpuHandle, NV_GPU_FAN_COOLERS_CONTROL *coolersControl) = 0;
+int (__cdecl *NvAPI_GPU_ClientFanCoolersSetControl)(void *gpuHandle, NV_GPU_FAN_COOLERS_CONTROL *coolersControl) = 0;
 int (__cdecl *NvAPI_GPU_SetIllumination)(NV_GPU_SET_ILLUMINATION_PARM *illuminationInfo) = 0;
 int (__cdecl *NvAPI_GPU_SetPstate)(void *gpuHandle, unsigned int pState, unsigned int setType) = 0;
 int (__cdecl *NvAPI_GPU_SetPstateClientLimits)(void *gpuHandle, unsigned int limitType, unsigned int pState) = 0;
@@ -364,6 +382,8 @@ int NvApiLoad()
 			NvAPI_GPU_ClientPowerPoliciesSetStatus = (int (__cdecl*)(void*, NV_GPU_POWER_STATUS*)) NvAPI_QueryInterface(0xAD95F5ED);
 			NvAPI_GPU_ClientThermalPoliciesSetLimit = (int (__cdecl*)(void*, NV_GPU_THERMAL_LIMIT*)) NvAPI_QueryInterface(0x34C0B13D);
 			NvAPI_GPU_SetCoolerLevels = (int (__cdecl*)(void*, unsigned int, NV_GPU_COOLER_LEVEL*)) NvAPI_QueryInterface(0x891FA0AE);
+			NvAPI_GPU_ClientFanCoolersGetControl = (int (__cdecl*)(void*, NV_GPU_FAN_COOLERS_CONTROL*)) NvAPI_QueryInterface(0x814B209F);
+			NvAPI_GPU_ClientFanCoolersSetControl = (int (__cdecl*)(void*, NV_GPU_FAN_COOLERS_CONTROL*)) NvAPI_QueryInterface(0xA58971A5);
 			NvAPI_GPU_SetIllumination = (int (__cdecl*)(NV_GPU_SET_ILLUMINATION_PARM*)) NvAPI_QueryInterface(0x0254A187);
 			NvAPI_GPU_SetPstate = (int (__cdecl*)(void*, unsigned int, unsigned int)) NvAPI_QueryInterface(0x025BFB10);
 			NvAPI_GPU_SetPstateClientLimits = (int (__cdecl*)(void*, unsigned int, unsigned int)) NvAPI_QueryInterface(0xFDFC7D49);
@@ -646,6 +666,51 @@ int NvApiSetFanSpeed(unsigned int gpuBusId, unsigned int fanIndex, bool defaultM
 	return result;
 }
 
+int NvApiSetFanSpeed2(unsigned int gpuBusId, unsigned int fanIndex, bool defaultMode, unsigned int speed)
+{
+	int result = -1;
+
+	if (NvAPI_GPU_ClientFanCoolersSetControl)
+	{
+		NV_GPU_FAN_COOLERS_CONTROL coolersControl = {0};
+
+		coolersControl.version = MAKE_NVAPI_VERSION(coolersControl, 1);
+
+		if (fanIndex == 0)
+		{
+			if (NvAPI_GPU_ClientFanCoolersGetControl)
+			{
+				LOG(result = NvAPI_GPU_ClientFanCoolersGetControl(NvApiGpuHandles[gpuBusId], &coolersControl));
+
+				if (result == 0)
+				{
+					for (unsigned int i = 0; i < coolersControl.count; ++i)
+					{
+						coolersControl.coolers[i].level = speed;
+						coolersControl.coolers[i].mode = defaultMode ? 0 : 1;
+					}
+				}
+				else
+				{
+					return result;
+				}
+			}
+		}
+		else
+		{
+			coolersControl.count = 1;
+
+			coolersControl.coolers[0].index = fanIndex;
+			coolersControl.coolers[0].level = speed;
+			coolersControl.coolers[0].mode = defaultMode ? 0 : 1;
+		}
+
+		LOG(result = NvAPI_GPU_ClientFanCoolersSetControl(NvApiGpuHandles[gpuBusId], &coolersControl));
+	}
+
+	return result;
+}
+
 int NvApiSetLedBrightness(unsigned int gpuBusId, LedType ledType, unsigned int brightness)
 {
 	int result = -1;
@@ -799,7 +864,7 @@ int NvApiSetCurve(unsigned int gpuBusId, unsigned int count, unsigned int *volta
 				memcpy(vfpCurve.mask, clockMasks.mask, sizeof(vfpCurve.mask));
 
 				LOG(result = NvAPI_GPU_GetVFPCurve(NvApiGpuHandles[gpuBusId], &vfpCurve));
-				
+
 				if (result == 0)
 				{
 					LOG(result = NvAPI_GPU_GetClockBoostTable(NvApiGpuHandles[gpuBusId], &clockTable));
@@ -1443,10 +1508,11 @@ void ParseArgs(int argc, char *argv[])
 				unsigned int gpuBusId = atoi(argv[++arg]);
 				unsigned int fanIndex = atoi(argv[++arg]);
 				int speed = atoi(argv[++arg]);
-				
+
 				if (NvApiGpuHandles[gpuBusId] != 0)
 				{
-					NvApiSetFanSpeed(gpuBusId, fanIndex, (speed < 0), (speed >= 0) ? speed : 30);
+					if (NvApiSetFanSpeed(gpuBusId, fanIndex, (speed < 0), (speed >= 0) ? speed : 30) != 0)
+						NvApiSetFanSpeed2(gpuBusId, fanIndex, (speed < 0), (speed >= 0) ? speed : 30);
 				}
 				else
 				{
@@ -1500,7 +1566,7 @@ void ParseArgs(int argc, char *argv[])
 						if (NvApiGetCurve(gpuBusId, (unsigned int*) &count, voltageUV, frequencyDeltaKHz) == 0)
 						{
 							FILE *curve = 0;
-							
+
 							LOG(curve = fopen("curve.bat", "a"));
 
 							if (curve)
